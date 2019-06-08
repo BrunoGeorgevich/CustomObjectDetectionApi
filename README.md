@@ -21,9 +21,9 @@ Retrieve the images and label them. [LabelImg GitHub link](https://github.com/tz
 
 First covert all the labeled data (.xml) into a .csv
 ```
-python xml_to_csv.py
+python xml_to_csv.py [-f] 'folder1,folder2,...,folderN' -im images
 ```
-Then, edit the **labelmap.prototxt**, located in the training folder, with the classes of interest.
+Then, edit the **labelmap.pbtxt**, located in the training folder, with the classes of interest.
 ```
 item {
   id: 1
@@ -43,7 +43,7 @@ item {
 }
 
 ```
-After this, edit the **generate_tfrecord.py** with the same classes and ids of the **labelmap.prototxt**.
+After this, edit the **generate_tfrecord.py** with the same classes and ids of the **labelmap.pbtxt**.
 ```
 def class_text_to_int(row_label):
     if row_label == 'firstclass':
@@ -58,8 +58,8 @@ def class_text_to_int(row_label):
 ```
 Then, generate the TF_record files:
 ```
-python generate_tfrecord.py --csv_input=images/train_labels.csv --image_dir=images/train --output_path=train.record
-python generate_tfrecord.py --csv_input=images/test_labels.csv --image_dir=images/test --output_path=test.record
+python generate_tfrecord.py --csv_input=images/train_labels.csv --image_dir=images/ --output_path=train.record
+python generate_tfrecord.py --csv_input=images/test_labels.csv --image_dir=images/ --output_path=test.record
 ```
 
 ### 5. Configure training
@@ -75,7 +75,7 @@ First, you will edit the .config file that you choosed:
 - Set train input path to the train.record. **Line 126**.
 	- input_path : ".../train.record"
 	
-- Set label map path to the training/labelmap.prototxt. **Line 128**.
+- Set label map path to the training/labelmap.pbtxt. **Line 128**.
 	- label_map_path: ".../training/labelmap.pbtxt"
 
 - Change num_examples to the number of images you have in the \images\test directory. **Line 132**.
@@ -84,7 +84,7 @@ First, you will edit the .config file that you choosed:
 - Set test input path to the train.record. **Line 140**.
 	- input_path : ".../test.record"
 	
-- Set label map path to the training/labelmap.prototxt. **Line 142**.
+- Set label map path to the training/labelmap.pbtxt. **Line 142**.
 	- label_map_path: ".../training/labelmap.pbtxt"
 
 Save the file after the changes have been made. That’s it! The training job is all configured and ready to go!
