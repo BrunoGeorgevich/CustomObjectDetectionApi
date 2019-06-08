@@ -94,7 +94,7 @@ Save the file after the changes have been made. That’s it! The training job is
 Start the training:
 
 ```
-python train.py --logtostderr --train_dir=training/ --pipeline_config_path=training/MODEL_SELECTED.config
+python train.py --logtostderr --train_dir=results/ --pipeline_config_path=training/MODEL_SELECTED.config
 ```
 To open the tensorboard:
 ```
@@ -106,5 +106,5 @@ tensorboard --logdir=training
 To export the model trained:
 
 ```
-python export_inference_graph.py --input_type image_tensor --pipeline_config_path training/MODEL_SELECTED.config --trained_checkpoint_prefix training/model.ckpt-XXXX --output_directory inference_graph
+python export_inference_graph.py --input_type image_tensor --pipeline_config_path training/MODEL_SELECTED.config --trained_checkpoint_prefix results/model.ckpt-XXXX --output_directory inference_graph
 ```
