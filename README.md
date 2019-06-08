@@ -3,6 +3,12 @@
 This repository was based on: [original github](https://github.com/EdjeElectronics/TensorFlow-Object-Detection-API-Tutorial-Train-Multiple-Objects-Windows-10)
 
 ## Steps
+### 0. Set Environment Variables
+
+```
+export PYTHONPATH=THIS_FOLDER:THIS_FOLDER/slim
+```
+
 ### 1. Choose the model
 
 Tensorflow provides a series of pre-trained models: [model zoo](https://github.com/tensorflow/models/blob/master/research/object_detection/g3doc/detection_model_zoo.md). 
