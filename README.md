@@ -6,7 +6,7 @@ This repository was based on: [original github](https://github.com/EdjeElectroni
 ### 0. Set Environment Variables
 
 ```
-export PYTHONPATH=THIS_FOLDER:THIS_FOLDER/slim
+export PYTHONPATH=$PYTHONPATH:$PWD:$PWD/slim
 ```
 
 ### 1. Choose the model
