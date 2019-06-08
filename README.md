@@ -15,7 +15,7 @@ Retrieve the images and label them. [LabelImg GitHub link](https://github.com/tz
 
 First covert all the labeled data (.xml) into a .csv
 ```
-python xml_to_csv.py
+python xml_to_csv.py [-f] 'folder1,folder2,...,folderN' -im images
 ```
 Then, edit the **labelmap.prototxt**, located in the training folder, with the classes of interest.
 ```
@@ -52,8 +52,8 @@ def class_text_to_int(row_label):
 ```
 Then, generate the TF_record files:
 ```
-python generate_tfrecord.py --csv_input=images/train_labels.csv --image_dir=images/train --output_path=train.record
-python generate_tfrecord.py --csv_input=images/test_labels.csv --image_dir=images/test --output_path=test.record
+python generate_tfrecord.py --csv_input=images/train_labels.csv --image_dir=images/ --output_path=train.record
+python generate_tfrecord.py --csv_input=images/test_labels.csv --image_dir=images/ --output_path=test.record
 ```
 
 ### 5. Configure training
