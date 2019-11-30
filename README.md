@@ -5,8 +5,16 @@ This repository was based on: [original github](https://github.com/EdjeElectroni
 ## Steps
 ### 0. Set Environment Variables
 
+- Linux
+
+```shell
+export PYTHONPATH=$PYTHONPATH:$PWD:$PWD/slim:$PWD/object_detection
 ```
-export PYTHONPATH=$PYTHONPATH:$PWD:$PWD/slim
+
+- Windows
+
+```powershell
+set PYTHONPATH=%CD%;%CD%\slim;%CD%\object_detection
 ```
 
 ### 1. Choose the model
