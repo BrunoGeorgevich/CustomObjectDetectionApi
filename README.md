@@ -12,10 +12,14 @@ export PYTHONPATH=$PYTHONPATH:$PWD:$PWD/slim:$PWD/object_detection
 ```
 
 - Windows
-
-```powershell
-set PYTHONPATH=%CD%;%CD%\slim;%CD%\object_detection
-```
+	- cmd
+		```cmd
+		set PYTHONPATH=%CD%;%CD%\slim;%CD%\object_detection
+		```
+	- powershell
+		```powershell
+		$env:PYTHONPATH = (Get-Item -Path ".\").FullName + ';' + (Get-Item -Path ".\slim").FullName + ';' + (Get-Item -Path ".\object_detection").FullName
+		```
 
 ### 1. Choose the model
 
