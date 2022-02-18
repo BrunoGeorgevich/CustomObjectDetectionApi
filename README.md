@@ -35,10 +35,18 @@ Possible tools:
 
 ### 3. Generate Training Data
 
+#### PASCAL VOC
 First covert all the labeled data (.xml) into a .csv
 ```
 python xml_to_csv.py [-f] 'folder1,folder2,...,folderN' -im images
 ```
+
+#### YOLO
+First covert all the labeled data (.txt) into a .csv
+```
+python yolo_to_csv.py [-f] 'folder1,folder2,...,folderN'
+```
+
 Then, edit the **label_map.txt**, located in the training folder, with the classes of interest.
 ```
 item {
