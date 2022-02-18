@@ -1,6 +1,6 @@
-# Object Detection Base
+# Reference
 
-This repository was based on: [original github](https://github.com/EdjeElectronics/TensorFlow-Object-Detection-API-Tutorial-Train-Multiple-Objects-Windows-10)
+This repository was based on: [repository](https://github.com/EdjeElectronics/TensorFlow-Object-Detection-API-Tutorial-Train-Multiple-Objects-Windows-10)
 
 ## Steps
 ### 0. Set Environment Variables
