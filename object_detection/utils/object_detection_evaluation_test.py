@@ -15,12 +15,20 @@
 
 """Tests for object_detection.utils.object_detection_evaluation."""
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
+import unittest
 from absl.testing import parameterized
 import numpy as np
-import tensorflow as tf
+import six
+from six.moves import range
+import tensorflow.compat.v1 as tf
 from object_detection import eval_util
 from object_detection.core import standard_fields
 from object_detection.utils import object_detection_evaluation
+from object_detection.utils import tf_version
 
 
 class OpenImagesV2EvaluationTest(tf.test.TestCase):
@@ -310,17 +318,14 @@ class OpenImagesChallengeEvaluatorTest(tf.test.TestCase):
     expected_metric_name = 'OpenImagesInstanceSegmentationChallenge'
 
     self.assertAlmostEqual(
-        metrics[
-            expected_metric_name + '_PerformanceByCategory/AP@0.5IOU/dog'],
-        0.5)
+        metrics[expected_metric_name + '_PerformanceByCategory/AP@0.5IOU/dog'],
+        1.0)
     self.assertAlmostEqual(
         metrics[
             expected_metric_name + '_PerformanceByCategory/AP@0.5IOU/cat'],
         0)
     self.assertAlmostEqual(
-        metrics[
-            expected_metric_name + '_Precision/mAP@0.5IOU'],
-        0.25)
+        metrics[expected_metric_name + '_Precision/mAP@0.5IOU'], 0.5)
 
     oivchallenge_evaluator.clear()
     self.assertFalse(oivchallenge_evaluator._image_ids)
@@ -519,30 +524,6 @@ class PascalEvaluationTest(tf.test.TestCase):
     pascal_evaluator.clear()
     self.assertFalse(pascal_evaluator._image_ids)
 
-  def test_value_error_on_duplicate_images(self):
-    categories = [{'id': 1, 'name': 'cat'},
-                  {'id': 2, 'name': 'dog'},
-                  {'id': 3, 'name': 'elephant'}]
-    #  Add groundtruth
-    pascal_evaluator = object_detection_evaluation.PascalDetectionEvaluator(
-        categories)
-    image_key1 = 'img1'
-    groundtruth_boxes1 = np.array([[0, 0, 1, 1], [0, 0, 2, 2], [0, 0, 3, 3]],
-                                  dtype=float)
-    groundtruth_class_labels1 = np.array([1, 3, 1], dtype=int)
-    pascal_evaluator.add_single_ground_truth_image_info(
-        image_key1,
-        {standard_fields.InputDataFields.groundtruth_boxes: groundtruth_boxes1,
-         standard_fields.InputDataFields.groundtruth_classes:
-         groundtruth_class_labels1})
-    with self.assertRaises(ValueError):
-      pascal_evaluator.add_single_ground_truth_image_info(
-          image_key1,
-          {standard_fields.InputDataFields.groundtruth_boxes:
-           groundtruth_boxes1,
-           standard_fields.InputDataFields.groundtruth_classes:
-           groundtruth_class_labels1})
-
 
 class WeightedPascalEvaluationTest(tf.test.TestCase):
 
@@ -653,28 +634,6 @@ class WeightedPascalEvaluationTest(tf.test.TestCase):
                            1. / (3 + 1 + 2) / 3)
     self.wp_eval.clear()
     self.assertFalse(self.wp_eval._image_ids)
-
-  def test_value_error_on_duplicate_images(self):
-    #  Add groundtruth
-    self.wp_eval = (
-        object_detection_evaluation.WeightedPascalDetectionEvaluator(
-            self.categories))
-    image_key1 = 'img1'
-    groundtruth_boxes1 = np.array([[0, 0, 1, 1], [0, 0, 2, 2], [0, 0, 3, 3]],
-                                  dtype=float)
-    groundtruth_class_labels1 = np.array([1, 3, 1], dtype=int)
-    self.wp_eval.add_single_ground_truth_image_info(
-        image_key1,
-        {standard_fields.InputDataFields.groundtruth_boxes: groundtruth_boxes1,
-         standard_fields.InputDataFields.groundtruth_classes:
-         groundtruth_class_labels1})
-    with self.assertRaises(ValueError):
-      self.wp_eval.add_single_ground_truth_image_info(
-          image_key1,
-          {standard_fields.InputDataFields.groundtruth_boxes:
-           groundtruth_boxes1,
-           standard_fields.InputDataFields.groundtruth_classes:
-           groundtruth_class_labels1})
 
 
 class PrecisionAtRecallEvaluationTest(tf.test.TestCase):
@@ -802,31 +761,6 @@ class PrecisionAtRecallEvaluationTest(tf.test.TestCase):
     self.wp_eval.clear()
     self.assertFalse(self.wp_eval._image_ids)
 
-  def test_value_error_on_duplicate_images(self):
-    #  Add groundtruth
-    self.wp_eval = (
-        object_detection_evaluation.PrecisionAtRecallDetectionEvaluator(
-            self.categories, recall_lower_bound=0.0, recall_upper_bound=0.5))
-    image_key1 = 'img1'
-    groundtruth_boxes1 = np.array([[0, 0, 1, 1], [0, 0, 2, 2], [0, 0, 3, 3]],
-                                  dtype=float)
-    groundtruth_class_labels1 = np.array([1, 3, 1], dtype=int)
-    self.wp_eval.add_single_ground_truth_image_info(
-        image_key1, {
-            standard_fields.InputDataFields.groundtruth_boxes:
-                groundtruth_boxes1,
-            standard_fields.InputDataFields.groundtruth_classes:
-                groundtruth_class_labels1
-        })
-    with self.assertRaises(ValueError):
-      self.wp_eval.add_single_ground_truth_image_info(
-          image_key1, {
-              standard_fields.InputDataFields.groundtruth_boxes:
-                  groundtruth_boxes1,
-              standard_fields.InputDataFields.groundtruth_classes:
-                  groundtruth_class_labels1
-          })
-
 
 class ObjectDetectionEvaluationTest(tf.test.TestCase):
 
@@ -925,7 +859,7 @@ class ObjectDetectionEvaluationTest(tf.test.TestCase):
     ]
     expected_average_precision_per_class = np.array([1. / 6., 0, 0],
                                                     dtype=float)
-    expected_corloc_per_class = np.array([0, np.divide(0, 0), 0], dtype=float)
+    expected_corloc_per_class = np.array([0, 0, 0], dtype=float)
     expected_mean_ap = 1. / 18
     expected_mean_corloc = 0.0
     for i in range(self.od_eval.num_class):
@@ -939,7 +873,37 @@ class ObjectDetectionEvaluationTest(tf.test.TestCase):
     self.assertAlmostEqual(expected_mean_ap, mean_ap)
     self.assertAlmostEqual(expected_mean_corloc, mean_corloc)
 
+  def test_merge_internal_state(self):
+    # Test that if initial state is merged, the results of the evaluation are
+    # the same.
+    od_eval_state = self.od_eval.get_internal_state()
+    copy_od_eval = object_detection_evaluation.ObjectDetectionEvaluation(
+        self.od_eval.num_class)
+    copy_od_eval.merge_internal_state(od_eval_state)
 
+    (average_precision_per_class, mean_ap, precisions_per_class,
+     recalls_per_class, corloc_per_class,
+     mean_corloc) = self.od_eval.evaluate()
+
+    (copy_average_precision_per_class, copy_mean_ap, copy_precisions_per_class,
+     copy_recalls_per_class, copy_corloc_per_class,
+     copy_mean_corloc) = copy_od_eval.evaluate()
+
+    for i in range(self.od_eval.num_class):
+      self.assertTrue(
+          np.allclose(copy_precisions_per_class[i], precisions_per_class[i]))
+      self.assertTrue(
+          np.allclose(copy_recalls_per_class[i], recalls_per_class[i]))
+    self.assertTrue(
+        np.allclose(copy_average_precision_per_class,
+                    average_precision_per_class))
+    self.assertTrue(np.allclose(copy_corloc_per_class, corloc_per_class))
+    self.assertAlmostEqual(copy_mean_ap, mean_ap)
+    self.assertAlmostEqual(copy_mean_corloc, mean_corloc)
+
+
+@unittest.skipIf(tf_version.is_tf2(), 'Eval Metrics ops are supported in TF1.X '
+                 'only.')
 class ObjectDetectionEvaluatorTest(tf.test.TestCase, parameterized.TestCase):
 
   def setUp(self):
@@ -983,7 +947,7 @@ class ObjectDetectionEvaluatorTest(tf.test.TestCase, parameterized.TestCase):
                                  axis=0)
     detection_classes = tf.tile(tf.constant([[0]]), multiples=[batch_size, 1])
     detection_masks = tf.tile(
-        tf.ones(shape=[1, 2, 20, 20], dtype=tf.float32),
+        tf.ones(shape=[1, 1, 20, 20], dtype=tf.float32),
         multiples=[batch_size, 1, 1, 1])
     groundtruth_boxes = tf.constant([[0., 0., 1., 1.]])
     groundtruth_classes = tf.constant([1])
@@ -1008,6 +972,7 @@ class ObjectDetectionEvaluatorTest(tf.test.TestCase, parameterized.TestCase):
         detection_fields.detection_masks: detection_masks,
         detection_fields.num_detections: num_detections
     }
+
     groundtruth = {
         input_data_fields.groundtruth_boxes:
             groundtruth_boxes,
@@ -1069,7 +1034,7 @@ class ObjectDetectionEvaluatorTest(tf.test.TestCase, parameterized.TestCase):
 
     with self.test_session() as sess:
       metrics = {}
-      for key, (value_op, _) in metric_ops.iteritems():
+      for key, (value_op, _) in six.iteritems(metric_ops):
         metrics[key] = value_op
       sess.run(update_op)
       metrics = sess.run(metrics)

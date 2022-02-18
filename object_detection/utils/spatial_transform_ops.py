@@ -13,7 +13,13 @@
 # limitations under the License.
 # ==============================================================================
 """Spatial transformation ops like RoIAlign, CropAndResize."""
-import tensorflow as tf
+
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
+import tensorflow.compat.v1 as tf
+from object_detection.utils import shape_utils
 
 
 def _coordinate_vector_1d(start, end, size, align_endpoints):
@@ -32,7 +38,7 @@ def _coordinate_vector_1d(start, end, size, align_endpoints):
   """
   start = tf.expand_dims(start, -1)
   end = tf.expand_dims(end, -1)
-  length = tf.cast(end - start, dtype=tf.float32)
+  length = end - start
   if align_endpoints:
     relative_grid_spacing = tf.linspace(0.0, 1.0, size)
     offset = 0 if size > 1 else length / 2
@@ -40,6 +46,7 @@ def _coordinate_vector_1d(start, end, size, align_endpoints):
     relative_grid_spacing = tf.linspace(0.0, 1.0, size + 1)[:-1]
     offset = length / (2 * size)
   relative_grid_spacing = tf.reshape(relative_grid_spacing, [1, 1, size])
+  relative_grid_spacing = tf.cast(relative_grid_spacing, dtype=start.dtype)
   absolute_grid = start + offset + relative_grid_spacing * length
   return absolute_grid
 
@@ -170,12 +177,10 @@ def ravel_indices(feature_grid_y, feature_grid_x, num_levels, height, width,
     indices: A 1D int32 tensor containing feature point indices in a flattened
       feature grid.
   """
-  assert feature_grid_y.shape[0] == feature_grid_x.shape[0]
-  assert feature_grid_y.shape[1] == feature_grid_x.shape[1]
-  num_boxes = feature_grid_y.shape[1].value
-  batch_size = feature_grid_y.shape[0].value
-  size_y = feature_grid_y.shape[2]
-  size_x = feature_grid_x.shape[2]
+  num_boxes = tf.shape(feature_grid_y)[1]
+  batch_size = tf.shape(feature_grid_y)[0]
+  size_y = tf.shape(feature_grid_y)[2]
+  size_x = tf.shape(feature_grid_x)[2]
   height_dim_offset = width
   level_dim_offset = height * height_dim_offset
   batch_dim_offset = num_levels * level_dim_offset
@@ -213,17 +218,27 @@ def pad_to_max_size(features):
     true_feature_shapes: A 2D int32 tensor of shape [num_levels, 2] containing
       height and width of the feature maps before padding.
   """
-  heights = [feature.shape[1].value for feature in features]
-  widths = [feature.shape[2].value for feature in features]
-  max_height = max(heights)
-  max_width = max(widths)
+  if len(features) == 1:
+    return tf.expand_dims(features[0],
+                          1), tf.expand_dims(tf.shape(features[0])[1:3], 0)
 
+  if all([feature.shape.is_fully_defined() for feature in features]):
+    heights = [feature.shape[1] for feature in features]
+    widths = [feature.shape[2] for feature in features]
+    max_height = max(heights)
+    max_width = max(widths)
+  else:
+    heights = [tf.shape(feature)[1] for feature in features]
+    widths = [tf.shape(feature)[2] for feature in features]
+    max_height = tf.reduce_max(heights)
+    max_width = tf.reduce_max(widths)
   features_all = [
       tf.image.pad_to_bounding_box(feature, 0, 0, max_height,
                                    max_width) for feature in features
   ]
   features_all = tf.stack(features_all, axis=1)
-  true_feature_shapes = tf.stack([feature.shape[1:3] for feature in features])
+  true_feature_shapes = tf.stack([tf.shape(feature)[1:3]
+                                  for feature in features])
   return features_all, true_feature_shapes
 
 
@@ -247,7 +262,7 @@ def _gather_valid_indices(tensor, indices, padding_value=0.0):
   padded_tensor = tf.concat(
       [
           padding_value *
-          tf.ones([1, tensor.shape[-1].value], dtype=tensor.dtype), tensor
+          tf.ones([1, tf.shape(tensor)[-1]], dtype=tensor.dtype), tensor
       ],
       axis=0,
   )
@@ -285,10 +300,11 @@ def multilevel_roi_align(features, boxes, box_levels, output_size,
 
   Args:
     features: A list of 4D float tensors of shape [batch_size, max_height,
-      max_width, channels] containing features.
+      max_width, channels] containing features. Note that each feature map must
+      have the same number of channels.
     boxes: A 3D float tensor of shape [batch_size, num_boxes, 4] containing
       boxes of the form [ymin, xmin, ymax, xmax] in normalized coordinates.
-    box_levels: A 3D int32 tensor of shape [batch_size, num_boxes, 1]
+    box_levels: A 3D int32 tensor of shape [batch_size, num_boxes]
       representing the feature level index for each box.
     output_size: An list of two integers [size_y, size_x] indicating the output
       feature size for each box.
@@ -307,9 +323,12 @@ def multilevel_roi_align(features, boxes, box_levels, output_size,
   """
   with tf.name_scope(scope, 'MultiLevelRoIAlign'):
     features, true_feature_shapes = pad_to_max_size(features)
-    (batch_size, num_levels, max_feature_height, max_feature_width,
-     num_filters) = features.get_shape().as_list()
-    _, num_boxes, _ = boxes.get_shape().as_list()
+    batch_size = shape_utils.combined_static_and_dynamic_shape(features)[0]
+    num_levels = features.get_shape().as_list()[1]
+    max_feature_height = tf.shape(features)[2]
+    max_feature_width = tf.shape(features)[3]
+    num_filters = features.get_shape().as_list()[4]
+    num_boxes = tf.shape(boxes)[1]
 
     # Convert boxes to absolute co-ordinates.
     true_feature_shapes = tf.cast(true_feature_shapes, dtype=boxes.dtype)
@@ -393,10 +412,60 @@ def multilevel_roi_align(features, boxes, box_levels, output_size,
     return features_per_box
 
 
+def multilevel_native_crop_and_resize(images, boxes, box_levels,
+                                      crop_size, scope=None):
+  """Multilevel native crop and resize.
+
+  Same as `multilevel_matmul_crop_and_resize` but uses tf.image.crop_and_resize.
+
+  Args:
+    images: A list of 4-D tensor of shape
+      [batch, image_height, image_width, depth] representing features of
+      different size.
+    boxes: A `Tensor` of type `float32`.
+      A 3-D tensor of shape `[batch, num_boxes, 4]`. The boxes are specified in
+      normalized coordinates and are of the form `[y1, x1, y2, x2]`. A
+      normalized coordinate value of `y` is mapped to the image coordinate at
+      `y * (image_height - 1)`, so as the `[0, 1]` interval of normalized image
+      height is mapped to `[0, image_height - 1] in image height coordinates.
+      We do allow y1 > y2, in which case the sampled crop is an up-down flipped
+      version of the original image. The width dimension is treated similarly.
+      Normalized coordinates outside the `[0, 1]` range are allowed, in which
+      case we use `extrapolation_value` to extrapolate the input image values.
+    box_levels: A 2-D tensor of shape [batch, num_boxes] representing the level
+      of the box.
+    crop_size: A list of two integers `[crop_height, crop_width]`. All
+      cropped image patches are resized to this size. The aspect ratio of the
+      image content is not preserved. Both `crop_height` and `crop_width` need
+      to be positive.
+    scope: A name for the operation (optional).
+
+  Returns:
+    A 5-D float tensor of shape `[batch, num_boxes, crop_height, crop_width,
+    depth]`
+  """
+  if box_levels is None:
+    return native_crop_and_resize(images[0], boxes, crop_size, scope)
+  with tf.name_scope('MultiLevelNativeCropAndResize'):
+    cropped_feature_list = []
+    for level, image in enumerate(images):
+      # For each level, crop the feature according to all boxes
+      # set the cropped feature not at this level to 0 tensor.
+      # Consider more efficient way of computing cropped features.
+      cropped = native_crop_and_resize(image, boxes, crop_size, scope)
+      cond = tf.tile(
+          tf.equal(box_levels, level)[:, :, tf.newaxis],
+          [1, 1] + [tf.math.reduce_prod(cropped.shape.as_list()[2:])])
+      cond = tf.reshape(cond, cropped.shape)
+      cropped_final = tf.where(cond, cropped, tf.zeros_like(cropped))
+      cropped_feature_list.append(cropped_final)
+    return tf.math.reduce_sum(cropped_feature_list, axis=0)
+
+
 def native_crop_and_resize(image, boxes, crop_size, scope=None):
   """Same as `matmul_crop_and_resize` but uses tf.image.crop_and_resize."""
   def get_box_inds(proposals):
-    proposals_shape = proposals.get_shape().as_list()
+    proposals_shape = proposals.shape.as_list()
     if any(dim is None for dim in proposals_shape):
       proposals_shape = tf.shape(proposals)
     ones_mat = tf.ones(proposals_shape[:2], dtype=tf.int32)
@@ -411,6 +480,50 @@ def native_crop_and_resize(image, boxes, crop_size, scope=None):
     final_shape = tf.concat([tf.shape(boxes)[:2],
                              tf.shape(cropped_regions)[1:]], axis=0)
     return tf.reshape(cropped_regions, final_shape)
+
+
+def multilevel_matmul_crop_and_resize(images, boxes, box_levels, crop_size,
+                                      extrapolation_value=0.0, scope=None):
+  """Multilevel matmul crop and resize.
+
+  Same as `matmul_crop_and_resize` but crop images according to box levels.
+
+  Args:
+    images: A list of 4-D tensor of shape
+      [batch, image_height, image_width, depth] representing features of
+      different size.
+    boxes: A `Tensor` of type `float32` or 'bfloat16'.
+      A 3-D tensor of shape `[batch, num_boxes, 4]`. The boxes are specified in
+      normalized coordinates and are of the form `[y1, x1, y2, x2]`. A
+      normalized coordinate value of `y` is mapped to the image coordinate at
+      `y * (image_height - 1)`, so as the `[0, 1]` interval of normalized image
+      height is mapped to `[0, image_height - 1] in image height coordinates.
+      We do allow y1 > y2, in which case the sampled crop is an up-down flipped
+      version of the original image. The width dimension is treated similarly.
+      Normalized coordinates outside the `[0, 1]` range are allowed, in which
+      case we use `extrapolation_value` to extrapolate the input image values.
+    box_levels: A 2-D tensor of shape [batch, num_boxes] representing the level
+      of the box.
+    crop_size: A list of two integers `[crop_height, crop_width]`. All
+      cropped image patches are resized to this size. The aspect ratio of the
+      image content is not preserved. Both `crop_height` and `crop_width` need
+      to be positive.
+    extrapolation_value: A float value to use for extrapolation.
+    scope: A name for the operation (optional).
+
+  Returns:
+    A 5-D float tensor of shape `[batch, num_boxes, crop_height, crop_width,
+    depth]`
+  """
+  with tf.name_scope(scope, 'MultiLevelMatMulCropAndResize'):
+    if box_levels is None:
+      box_levels = tf.zeros(tf.shape(boxes)[:2], dtype=tf.int32)
+    return multilevel_roi_align(images,
+                                boxes,
+                                box_levels,
+                                crop_size,
+                                align_corners=True,
+                                extrapolation_value=extrapolation_value)
 
 
 def matmul_crop_and_resize(image, boxes, crop_size, extrapolation_value=0.0,
@@ -463,7 +576,7 @@ def matmul_crop_and_resize(image, boxes, crop_size, extrapolation_value=0.0,
     A 5-D tensor of shape `[batch, num_boxes, crop_height, crop_width, depth]`
   """
   with tf.name_scope(scope, 'MatMulCropAndResize'):
-    box_levels = tf.zeros(boxes.shape.as_list()[:2], dtype=tf.int32)
+    box_levels = tf.zeros(tf.shape(boxes)[:2], dtype=tf.int32)
     return multilevel_roi_align([image],
                                 boxes,
                                 box_levels,

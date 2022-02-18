@@ -1,119 +1,147 @@
-######## Image Object Detection Using Tensorflow-trained Classifier #########
-#
-# Author: Evan Juras
-# Date: 1/15/18
-# Description: 
-# This program uses a TensorFlow-trained classifier to perform object detection.
-# It loads the classifier uses it to perform object detection on an image.
-# It draws boxes and scores around the objects of interest in the image.
-
-## Some of the code is copied from Google's example at
-## https://github.com/tensorflow/models/blob/master/research/object_detection/object_detection_tutorial.ipynb
-
-## and some is copied from Dat Tran's example at
-## https://github.com/datitran/object_detector_app/blob/master/object_detection_app.py
-
-## but I changed it to make it more understandable to me.
-
-# Import packages
+# %%
 import os
+from os.path import join
+import argparse
+
 import cv2
+
+from glob import glob
+from random import choice
+
+import pathlib
+import matplotlib
+import matplotlib.pyplot as plt
+
+import io
+import scipy.misc
 import numpy as np
+from six import BytesIO
+from PIL import Image, ImageDraw, ImageFont
+
 import tensorflow as tf
-import sys
 
-# This is needed since the notebook is stored in the object_detection folder.
-sys.path.append("..")
-
-# Import utilites
 from object_detection.utils import label_map_util
-from object_detection.utils import visualization_utils as vis_util
+from object_detection.utils import config_util
+from object_detection.utils import visualization_utils as viz_utils
+from object_detection.builders import model_builder
+# %%
 
-# Name of the directory containing the object detection module we're using
-MODEL_NAME = 'inference_graph'
-IMAGE_NAME = '1.jpg'
 
-# Grab path to current working directory
-CWD_PATH = os.getcwd()
+def load_image_into_numpy_array(path):
+    """Load an image from file into a numpy array.
 
-# Path to frozen detection graph .pb file, which contains the model that is used
-# for object detection.
-PATH_TO_CKPT = os.path.join(CWD_PATH,MODEL_NAME,'frozen_inference_graph.pb')
+    Puts image into numpy array to feed into tensorflow graph.
+    Note that by convention we put it into a numpy array with shape
+    (height, width, channels), where channels=3 for RGB.
 
-# Path to label map file
-PATH_TO_LABELS = os.path.join(CWD_PATH,'training','labelmap.pbtxt')
+    Args:
+      path: the file path to the image
 
-# Path to image
-PATH_TO_IMAGE = os.path.join(CWD_PATH,IMAGE_NAME)
+    Returns:
+      uint8 numpy array with shape (img_height, img_width, 3)
+    """
+    img_data = tf.io.gfile.GFile(path, 'rb').read()
+    image = Image.open(BytesIO(img_data))
+    (im_width, im_height) = image.size
+    return np.array(image.getdata()).reshape(
+        (im_height, im_width, 3)).astype(np.uint8)
 
-# Number of classes the object detector can identify
-NUM_CLASSES = 6
+def get_keypoint_tuples(eval_config):
+    """Return a tuple list of keypoint edges from the eval config.
 
-# Load the label map.
-# Label maps map indices to category names, so that when our convolution
-# network predicts `5`, we know that this corresponds to `king`.
-# Here we use internal utility functions, but anything that returns a
-# dictionary mapping integers to appropriate string labels would be fine
-label_map = label_map_util.load_labelmap(PATH_TO_LABELS)
-categories = label_map_util.convert_label_map_to_categories(label_map, max_num_classes=NUM_CLASSES, use_display_name=True)
+    Args:
+      eval_config: an eval config containing the keypoint edges
+
+    Returns:
+      a list of edge tuples, each in the format (start, end)
+    """
+    tuple_list = []
+    kp_list = eval_config.keypoint_edge
+    for edge in kp_list:
+        tuple_list.append((edge.start, edge.end))
+    return tuple_list
+
+
+def get_model_detection_function(model):
+    """Get a tf.function for detection."""
+
+    @tf.function
+    def detect_fn(image):
+        """Detect objects in image."""
+
+        image, shapes = model.preprocess(image)
+        prediction_dict = model.predict(image, shapes)
+        detections = model.postprocess(prediction_dict, shapes)
+
+        return detections, prediction_dict, tf.reshape(shapes, [-1])
+
+    return detect_fn
+
+
+parser = argparse.ArgumentParser(description='Convert .xml files into .csv.')
+parser.add_argument('-m','--ckpt_model_path', required=True, type=str, help='Inference model CKPT path')
+parser.add_argument('-c','--config_model_path', required=True, type=str, help='Inference model Config path')
+parser.add_argument('-im','--image_path', required=True, type=str, help='Image path that will be processed')
+args = parser.parse_args()
+
+# %%
+pipeline_config = args.config_model_pathos
+model_dir = args.ckpt_model_path
+
+# Load pipeline config and build a detection model
+configs = config_util.get_configs_from_pipeline_file(pipeline_config)
+model_config = configs['model']
+detection_model = model_builder.build(
+    model_config=model_config, is_training=False)
+
+# Restore checkpoint
+ckpt = tf.compat.v2.train.Checkpoint(
+    model=detection_model)
+ckpt.restore(os.path.join(model_dir, 'ckpt-0')).expect_partial()
+
+detect_fn = get_model_detection_function(detection_model)
+
+label_map_path = configs['eval_input_config'].label_map_path
+label_map = label_map_util.load_labelmap(label_map_path)
+categories = label_map_util.convert_label_map_to_categories(
+    label_map,
+    max_num_classes=label_map_util.get_max_label_map_index(label_map),
+    use_display_name=True)
 category_index = label_map_util.create_category_index(categories)
+label_map_dict = label_map_util.get_label_map_dict(
+    label_map, use_display_name=True)
+# %%
+image_path = args.image_path
 
-# Load the Tensorflow model into memory.
-detection_graph = tf.Graph()
-with detection_graph.as_default():
-    od_graph_def = tf.GraphDef()
-    with tf.gfile.GFile(PATH_TO_CKPT, 'rb') as fid:
-        serialized_graph = fid.read()
-        od_graph_def.ParseFromString(serialized_graph)
-        tf.import_graph_def(od_graph_def, name='')
+image_np = load_image_into_numpy_array(image_path)
 
-    sess = tf.Session(graph=detection_graph)
+input_tensor = tf.convert_to_tensor(
+    np.expand_dims(image_np, 0), dtype=tf.float32)
+detections, predictions_dict, shapes = detect_fn(input_tensor)
 
-# Define input and output tensors (i.e. data) for the object detection classifier
+label_id_offset = 1
+image_np_with_detections = image_np.copy()
 
-# Input tensor is the image
-image_tensor = detection_graph.get_tensor_by_name('image_tensor:0')
+# Use keypoints if available in detections
+keypoints, keypoint_scores = None, None
+if 'detection_keypoints' in detections:
+    keypoints = detections['detection_keypoints'][0].numpy()
+    keypoint_scores = detections['detection_keypoint_scores'][0].numpy()
 
-# Output tensors are the detection boxes, scores, and classes
-# Each box represents a part of the image where a particular object was detected
-detection_boxes = detection_graph.get_tensor_by_name('detection_boxes:0')
-
-# Each score represents level of confidence for each of the objects.
-# The score is shown on the result image, together with the class label.
-detection_scores = detection_graph.get_tensor_by_name('detection_scores:0')
-detection_classes = detection_graph.get_tensor_by_name('detection_classes:0')
-
-# Number of objects detected
-num_detections = detection_graph.get_tensor_by_name('num_detections:0')
-
-# Load image using OpenCV and
-# expand image dimensions to have shape: [1, None, None, 3]
-# i.e. a single-column array, where each item in the column has the pixel RGB value
-image = cv2.imread(PATH_TO_IMAGE)
-image_expanded = np.expand_dims(image, axis=0)
-
-# Perform the actual detection by running the model with the image as input
-(boxes, scores, classes, num) = sess.run(
-    [detection_boxes, detection_scores, detection_classes, num_detections],
-    feed_dict={image_tensor: image_expanded})
-
-# Draw the results of the detection (aka 'visulaize the results')
-
-vis_util.visualize_boxes_and_labels_on_image_array(
-    image,
-    np.squeeze(boxes),
-    np.squeeze(classes).astype(np.int32),
-    np.squeeze(scores),
+viz_utils.visualize_boxes_and_labels_on_image_array(
+    image_np_with_detections,
+    detections['detection_boxes'][0].numpy(),
+    (detections['detection_classes'][0].numpy() + label_id_offset).astype(int),
+    detections['detection_scores'][0].numpy(),
     category_index,
     use_normalized_coordinates=True,
-    line_thickness=8,
-    min_score_thresh=0.10)
+    max_boxes_to_draw=200,
+    min_score_thresh=.30,
+    agnostic_mode=False,
+    keypoints=keypoints,
+    keypoint_scores=keypoint_scores,
+    keypoint_edges=get_keypoint_tuples(configs['eval_config']))
 
-# All the results have been drawn on image. Now display the image.
-cv2.imshow('Object detector', image)
-
-# Press any key to close the image
+cv2.imshow("Image", cv2.cvtColor(image_np_with_detections, cv2.COLOR_RGB2BGR))
 cv2.waitKey(0)
-
-# Clean up
 cv2.destroyAllWindows()

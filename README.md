@@ -23,11 +23,15 @@ export PYTHONPATH=$PYTHONPATH:$PWD:$PWD/slim:$PWD/object_detection
 
 ### 1. Choose the model
 
-Tensorflow provides a series of pre-trained models: [model zoo](https://github.com/tensorflow/models/blob/master/research/object_detection/g3doc/detection_model_zoo.md). 
+Tensorflow provides a series of pre-trained models: [model zoo](https://github.com/tensorflow/models/blob/master/research/object_detection/g3doc/tf2.md). 
 
 ### 2. Gather and Label Pictures
 
-Retrieve the images and label them. [LabelImg GitHub link](https://github.com/tzutalin/labelImg)
+Retrieve the images and label them. 
+Possible tools:
+ - [LabelImg GitHub link](https://github.com/tzutalin/labelImg)
+ - [CVAT GitHub link](https://github.com/openvinotoolkit/cvat)
+ - [EVA GitHub link](https://github.com/Ericsson/eva)
 
 ### 3. Generate Training Data
 
@@ -35,7 +39,7 @@ First covert all the labeled data (.xml) into a .csv
 ```
 python xml_to_csv.py [-f] 'folder1,folder2,...,folderN' -im images
 ```
-Then, edit the **labelmap.pbtxt**, located in the training folder, with the classes of interest.
+Then, edit the **label_map.txt**, located in the training folder, with the classes of interest.
 ```
 item {
   id: 1
@@ -55,7 +59,7 @@ item {
 }
 
 ```
-After this, edit the **generate_tfrecord.py** with the same classes and ids of the **labelmap.pbtxt**.
+After this, edit the **generate_tfrecord.py** with the same classes and ids of the **label_map.txt**.
 ```
 def class_text_to_int(row_label):
     if row_label == 'firstclass':
@@ -66,7 +70,21 @@ def class_text_to_int(row_label):
     elif row_label == 'fourthclass':
         return 4
     else:
-        return None
+        raise_excep(f"THIS CLASS {row_label} DOES NOT EXIST")
+```
+
+If your annotation files are in the YOLO Format, edit the **yolo_to_csv.py** with the same classes and ids of the **label_map.txt**.
+```
+def class_int_to_text(row_label):
+    if row_label == 1:
+        return 'firstclass'
+    elif row_label == 2:
+        return 'secondclass'
+        ...
+    elif row_label == 'fourthclass':
+        return 4
+    else:
+        raise_excep(f"THIS CLASS {row_label} DOES NOT EXIST")
 ```
 Then, generate the TF_record files:
 ```
@@ -106,7 +124,13 @@ Save the file after the changes have been made. That’s it! The training job is
 Start the training:
 
 ```
-python model_main.py --y --alsologtostderr --model_dir=results/ --pipeline_config_path=training/SELECTED_MODEL.config --num_train_steps=50000 --sample_1_of_n_eval_examples=1
+python .\model_main_tf2.py --pipeline_config_path MODEL_DIR/pipeline.config --model_dir CKPT_OUTPUT_PATH --alsologtostderr
+```
+
+Start the evaluation:
+
+```
+python .\model_main_tf2.py --pipeline_config_path MODEL_DIR/pipeline.config --model_dir CKPT_OUTPUT_PATH  --checkpoint_dir CKPT_OUTPUT_PATH--alsologtostderr
 ```
 To open the tensorboard:
 ```
@@ -118,5 +142,21 @@ tensorboard --logdir=results
 To export the model trained:
 
 ```
-python export_inference_graph.py --input_type image_tensor --pipeline_config_path training/MODEL_SELECTED.config --trained_checkpoint_prefix results/model.ckpt-XXXX --output_directory inference_graph
+python .\exporter_main_v2.py --input_type image_tensor --pipeline_config_path MODEL_DIR\pipeline.config --trained_checkpoint_dir CKPT_OUTPUT_PATH --output_directory OUTPUT_DIR
+```
+
+### 8. Test Inference Graph
+
+To export the model trained:
+
+Process an image
+
+```
+python Object_detection_image.py --ckpt_model_path CKPT_OUTPUT_PATH --config_model_path MODEL_DIR/pipeline.config --image_path IMAGE_PATH
+```
+
+Process a video
+
+```
+python Object_detection_image.py --ckpt_model_path CKPT_OUTPUT_PATH --config_model_path MODEL_DIR/pipeline.config --video_path VIDEO_PATH
 ```
